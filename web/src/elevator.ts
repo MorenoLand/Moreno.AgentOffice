@@ -88,13 +88,13 @@ export class OfficeElevator {
       return door;
     };
     this.carDoors = [makeCarDoor(-1), makeCarDoor(1)];
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.48, 0.34), brass);
-    panel.position.set(0.91, 1.35, 0.66);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.74, 0.34), brass);
+    panel.position.set(1.04, 1.44, 0.66); panel.userData.kind = "elevator-floor-panel";
     this.car.add(panel);
     for (const offset of [-0.13, 0, 0.13]) {
-      const bezel = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.007, 8, 24), steel); bezel.rotation.y = Math.PI / 2; bezel.position.set(0.967, 1.35 + offset, 0.66); this.car.add(bezel);
+      const bezel = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.007, 8, 24), steel); bezel.rotation.y = -Math.PI / 2; bezel.position.set(0.999, 1.35 + offset, 0.66); this.car.add(bezel);
       const button = new THREE.Mesh(new THREE.SphereGeometry(0.045, 20, 14), new THREE.MeshStandardMaterial({ color: offset === 0 ? 0x8bd5b0 : 0xffe3a2, emissive: offset === 0 ? 0x579e77 : 0xcaae64, emissiveIntensity: 0.3, roughness: 0.25 }));
-      button.scale.x = 0.3; button.position.set(0.96, 1.35 + offset, 0.66); this.car.add(button);
+      button.scale.x = 0.3; button.position.set(0.997, 1.35 + offset, 0.66); this.car.add(button);
     }
     const handrail = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.55, 24), steel);
     handrail.rotation.z = Math.PI / 2; handrail.position.set(0, 0.82, -1.08); this.car.add(handrail);
@@ -102,8 +102,8 @@ export class OfficeElevator {
       const bracket = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.14, 16), steel); bracket.rotation.x = Math.PI / 2; bracket.position.set(x, 0.82, -1.15); this.car.add(bracket);
       const mount = new THREE.Mesh(new THREE.CylinderGeometry(0.041, 0.041, 0.018, 24), steel); mount.rotation.x = Math.PI / 2; mount.position.set(x, 0.82, -1.207); this.car.add(mount);
     }
-    const indicator = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.02), new THREE.MeshBasicMaterial({ color: 0x83efad }));
-    indicator.position.set(0.91, 1.73, 0.66);
+    const indicator = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.1), new THREE.MeshBasicMaterial({ color: 0x83efad }));
+    indicator.rotation.y = -Math.PI / 2; indicator.position.set(1, 1.73, 0.66);
     this.car.add(indicator);
     const cabinLight = new THREE.PointLight(0xffe4ab, 1.4, 5, 2);
     cabinLight.position.set(0, 2.2, 0);

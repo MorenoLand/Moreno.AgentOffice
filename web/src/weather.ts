@@ -37,6 +37,9 @@ export class WeatherSystem {
   private seasonOption: SeasonOption = "auto";
   private windX = 0.15;
   private windZ = 0.04;
+  private viewerX = 0;
+  private viewerZ = 0;
+  private readonly precipitationRadius = 32;
   get windStrength(): number { return Math.min(1, Math.hypot(this.windX, this.windZ) / 1.6); }
   private readonly rainCapacity = 1200;
   private readonly windowRainCapacity = 192;
@@ -56,7 +59,7 @@ export class WeatherSystem {
     this.weatherAge = 0;
   }
 
-  constructor(private scene: THREE.Scene, depth: number) {
+  constructor(private scene: THREE.Scene, depth: number, private readonly shelters: readonly THREE.Box3[] = []) {
     if (scene.fog instanceof THREE.Fog) { this.fogNear = scene.fog.near; this.fogFar = scene.fog.far; }
     this.skyCanvas.width = 512;
     this.skyCanvas.height = 256;
@@ -96,7 +99,8 @@ export class WeatherSystem {
     this.update(0);
   }
 
-  update(dt: number): void {
+  update(dt: number, viewerX = this.viewerX, viewerZ = this.viewerZ): void {
+    this.viewerX = viewerX; this.viewerZ = viewerZ;
     this.elapsed += dt;
     this.weatherAge += dt;
     this.skyAge += dt;
@@ -193,15 +197,13 @@ export class WeatherSystem {
   }
 
   private seedRain(): void { for (let i = 0; i < this.rainCapacity; i++) this.setRainDrop(i, Math.random() * 19 - 3.6); }
-  private outsidePoint(): [number, number] {
-    let x = 0, z = 0;
-    do { x = Math.random() * 72 - 36; z = Math.random() * 64 - 28; } while (Math.abs(x) < 15.8 && Math.abs(z) < 10.9);
-    return [x, z];
-  }
   private setRainDrop(i: number, y: number): void {
-    const n = i * 6, [x, z] = this.outsidePoint(), length = 0.34 + Math.random() * 0.38;
+    const n = i * 6, x = this.viewerX + (Math.random() * 2 - 1) * this.precipitationRadius, z = this.viewerZ + (Math.random() * 2 - 1) * this.precipitationRadius, length = 0.34 + Math.random() * 0.38;
+    const roof = Math.max(this.shelterHeight(x, z), this.shelterHeight(x - 0.06 - this.windX * 0.035, z + 0.02 + this.windZ * 0.035)); if (y - length < roof) y = roof + length + Math.random() * 12;
     this.rainDrops.set([x, y, z, x - 0.06 - this.windX * 0.035, y - length, z + 0.02 + this.windZ * 0.035], n);
   }
+  private wrapPrecipitation(value: number, center: number): number { const span = this.precipitationRadius * 2; return center - this.precipitationRadius + THREE.MathUtils.euclideanModulo(value - center + this.precipitationRadius, span); }
+  private shelterHeight(x: number, z: number): number { let height = -Infinity; for (const box of this.shelters) if (x >= box.min.x && x <= box.max.x && z >= box.min.z && z <= box.max.z) height = Math.max(height, box.max.y); return height; }
   private moveRain(dt: number, speed: number, count: number): void {
     if (!count) return;
     for (let i = 0; i < count; i++) {
@@ -209,8 +211,8 @@ export class WeatherSystem {
       if (y < -3.6) this.setRainDrop(i, 17 + Math.random() * 8);
       else {
         const length = this.rainDrops[n + 1] - this.rainDrops[n + 4];
-        let x = this.rainDrops[n] + this.windX * dt, z = this.rainDrops[n + 2] + this.windZ * dt;
-        if ((Math.abs(x) < 15.8 && Math.abs(z) < 10.9) || (Math.abs(x - 0.06 - this.windX * 0.035) < 15.8 && Math.abs(z + 0.02 + this.windZ * 0.035) < 10.9)) [x, z] = this.outsidePoint();
+        const x = this.wrapPrecipitation(this.rainDrops[n] + this.windX * dt, this.viewerX), z = this.wrapPrecipitation(this.rainDrops[n + 2] + this.windZ * dt, this.viewerZ);
+        if (y - length < Math.max(this.shelterHeight(x, z), this.shelterHeight(x - 0.06 - this.windX * 0.035, z + 0.02 + this.windZ * 0.035))) { this.setRainDrop(i, 17 + Math.random() * 8); continue; }
         this.rainDrops[n] = x; this.rainDrops[n + 1] = y; this.rainDrops[n + 2] = z;
         this.rainDrops[n + 3] = x - 0.06 - this.windX * 0.035; this.rainDrops[n + 4] = y - length; this.rainDrops[n + 5] = z + 0.02 + this.windZ * 0.035;
       }
@@ -219,14 +221,16 @@ export class WeatherSystem {
   }
 
   private seedSnow(): void { for (let i = 0; i < 360; i++) this.setSnowFlake(i, Math.random() * 20 - 3.6); }
-  private setSnowFlake(i: number, y: number): void { const [x, z] = this.outsidePoint(); this.snowFlakes.set([x, y, z], i * 3); }
+  private setSnowFlake(i: number, y: number): void { const x = this.viewerX + (Math.random() * 2 - 1) * this.precipitationRadius, z = this.viewerZ + (Math.random() * 2 - 1) * this.precipitationRadius, roof = this.shelterHeight(x, z); this.snowFlakes.set([x, y < roof ? roof + Math.random() * 12 : y, z], i * 3); }
   private moveSnow(dt: number, speed: number): void {
+    if (!speed) return;
     for (let i = 0; i < 360; i++) {
       const n = i * 3;
       this.snowFlakes[n + 1] -= speed * dt;
-      this.snowFlakes[n] += Math.sin(this.elapsed * 0.7 + i) * dt * 0.22 + this.windX * dt * 0.3;
+      this.snowFlakes[n] = this.wrapPrecipitation(this.snowFlakes[n] + Math.sin(this.elapsed * 0.7 + i) * dt * 0.22 + this.windX * dt * 0.3, this.viewerX);
+      this.snowFlakes[n + 2] = this.wrapPrecipitation(this.snowFlakes[n + 2] + this.windZ * dt * 0.3, this.viewerZ);
       const x = this.snowFlakes[n], z = this.snowFlakes[n + 2];
-      if (this.snowFlakes[n + 1] < -3.6 || (Math.abs(x) < 15.8 && Math.abs(z) < 10.9)) this.setSnowFlake(i, 16 + Math.random() * 8);
+      if (this.snowFlakes[n + 1] < -3.6 || this.snowFlakes[n + 1] < this.shelterHeight(x, z)) this.setSnowFlake(i, 16 + Math.random() * 8);
     }
     (this.snow.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   }

@@ -5,7 +5,7 @@ export function enableAppOrdering(container: HTMLElement, storageKey: string, la
   const appItems = items();
   const measure = () => {
     const style = getComputedStyle(container), parseTracks = (value: string) => value.split(/\s+/).map((track) => Number.parseFloat(track)).filter((size) => Number.isFinite(size) && size > 0);
-    const columns = parseTracks(style.gridTemplateColumns), rows = parseTracks(style.gridTemplateRows), gapX = Number.parseFloat(style.columnGap) || 0, gapY = Number.parseFloat(style.rowGap) || 0;
+    const columns = parseTracks(style.gridTemplateColumns || container.style.gridTemplateColumns), rows = parseTracks(style.gridTemplateRows || container.style.gridTemplateRows), gapX = Number.parseFloat(style.columnGap) || 0, gapY = Number.parseFloat(style.rowGap) || 0;
     const currentItems = items(), uniqueXs = [...new Set(currentItems.map((item) => Math.round(item.getBoundingClientRect().left)))];
     const count = columns.length || (fitViewport ? gridColumnsHint : uniqueXs.length) || uniqueXs.length || gridColumnsHint || (layout === "column" ? 1 : Math.max(1, currentItems.length));
     const cellWidth = columns[0] || Math.max(1, currentItems[0]?.getBoundingClientRect().width ?? 1), cellHeight = rows[0] || Math.max(1, ...currentItems.map((item) => item.getBoundingClientRect().height));
@@ -24,11 +24,14 @@ export function enableAppOrdering(container: HTMLElement, storageKey: string, la
   };
   let saved: ReturnType<typeof parseSaved>;
   try { saved = parseSaved(localStorage.getItem(storageKey)); if (!saved && legacyStorageKey) saved = parseSaved(localStorage.getItem(legacyStorageKey)); } catch {}
+  if (fitViewport && saved?.positions && !saved.columns) saved = undefined;
+  let customized = !!saved?.positions;
   if (saved?.positions) {
     for (const item of appItems) {
       const id = item.dataset.appOrderId!, cell = saved.positions[id];
       if (Number.isInteger(cell) && cell >= 0 && ![...positions.values()].includes(cell)) positions.set(id, cell);
     }
+    customized = positions.size > 0;
   }
   if (saved?.order) {
     const order = new Map(saved.order.filter((id): id is string => typeof id === "string").map((id, index) => [id, index]));
@@ -43,11 +46,12 @@ export function enableAppOrdering(container: HTMLElement, storageKey: string, la
   const fit = () => {
     if (!fitViewport) return;
     const count = metrics.count, rows = Math.max(1, metrics.rows.length), occupied = new Set<number>(), pending: string[] = [];
+    if (!customized) preferred = new Map(appItems.map((item, index) => [item.dataset.appOrderId!, layout === "column" ? { column: Math.floor(index / rows), row: index % rows } : { column: index % count, row: Math.floor(index / count) }]));
     positions = new Map();
     for (const item of items()) { const id = item.dataset.appOrderId!, target = preferred.get(id) ?? { column: 0, row: 0 }, cell = Math.min(rows - 1, target.row) * count + Math.min(count - 1, target.column); if (occupied.has(cell)) pending.push(id); else { positions.set(id, cell); occupied.add(cell); } }
     for (const id of pending) { let cell = 0; while (occupied.has(cell)) cell++; positions.set(id, cell); occupied.add(cell); }
   };
-  const persist = () => { if (fitViewport) preferred = new Map([...positions].map(([id, cell]) => [id, { column: cell % metrics.count, row: Math.floor(cell / metrics.count) }])); try { localStorage.setItem(storageKey, JSON.stringify({ version: 2, positions: Object.fromEntries(positions), ...(fitViewport ? { columns: metrics.count } : {}) })); } catch {} };
+  const persist = () => { const columns = Math.max(metrics.count, ...[...preferred.values()].map((position) => position.column + 1)); try { localStorage.setItem(storageKey, JSON.stringify({ version: 2, positions: Object.fromEntries(fitViewport ? [...preferred].map(([id, position]) => [id, position.row * columns + position.column]) : positions), ...(fitViewport ? { columns } : {}) })); } catch {} };
   const apply = () => {
     for (const item of items()) {
       const cell = positions.get(item.dataset.appOrderId!) ?? 0;
@@ -59,7 +63,7 @@ export function enableAppOrdering(container: HTMLElement, storageKey: string, la
   refresh();
   requestAnimationFrame(() => { if (container.isConnected) refresh(); });
   if (fitViewport) new ResizeObserver(refresh).observe(container);
-  if (!saved?.positions) persist();
+  if (!saved?.positions && !fitViewport) persist();
   container.style.touchAction = "none";
   let gesture: { item: HTMLElement; pointerId: number; x: number; y: number; armed: boolean; started: boolean; timer: number; cell?: number; target?: HTMLElement } | undefined;
   let suppressClick: HTMLElement | undefined;
@@ -104,6 +108,7 @@ export function enableAppOrdering(container: HTMLElement, storageKey: string, la
         const id = current.item.dataset.appOrderId!, from = positions.get(id) ?? 0, occupant = items().find((item) => item !== current.item && positions.get(item.dataset.appOrderId!) === current.cell);
         if (occupant) positions.set(occupant.dataset.appOrderId!, from);
         positions.set(id, current.cell);
+        if (fitViewport) { customized = true; preferred.set(id, { column: current.cell % metrics.count, row: Math.floor(current.cell / metrics.count) }); if (occupant) preferred.set(occupant.dataset.appOrderId!, { column: from % metrics.count, row: Math.floor(from / metrics.count) }); }
         persist(); apply();
       }
       suppressClick = current.item;

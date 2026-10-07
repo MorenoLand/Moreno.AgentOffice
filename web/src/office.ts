@@ -140,6 +140,8 @@ export class Office {
   private shadowDirty = true;
   private shadowMotion = false;
   private readonly shadowSunDirection = new THREE.Vector3();
+  private readonly weatherViewPosition = new THREE.Vector3();
+  private readonly rainShelters: THREE.Box3[] = [];
   private heldProp: MovableProp | null = null;
 
   constructor(container: HTMLElement, readonly models: OfficeModels, options: Partial<OfficeOptions> = {}) {
@@ -193,7 +195,7 @@ export class Office {
     this.elevator = new OfficeElevator(this.scene);
     this.colliders.push(...this.elevator.colliders);
     this.walkSurfaces.push(...this.elevator.walkSurfaces);
-    this.weather = new WeatherSystem(this.scene, depth);
+    this.rainShelters.push(...exterior.roofs); this.weather = new WeatherSystem(this.scene, depth, this.rainShelters);
     this.wallArt = new WallArtGallery(this.scene, width, depth);
     const loft = buildLoft(this.scene, this.models);
     this.colliders.push(...loft.colliders);
@@ -599,7 +601,7 @@ export class Office {
 
   private buildCeiling(width: number, depth: number): void {
     const h = this.options.wallHeight;
-    this.box(width, 0.2, depth, 0xfdf8ee, 0, h + 0.1, 0);
+    this.rainShelters.push(new THREE.Box3().setFromObject(this.box(width, 0.2, depth, 0xfdf8ee, 0, h + 0.1, 0)));
     const shadeY = 4.95;
     const cordTop = h - 0.08;
     const cordBottom = shadeY + 0.25;
@@ -737,11 +739,11 @@ export class Office {
   }
   consumeDoorSound(): boolean { const pending = this.doorSoundPending; this.doorSoundPending = false; return pending; }
 
-  walkSurfaceAt(x: number, z: number, feetY = 0): number {
+  walkSurfaceAt(x: number, z: number, feetY = 0, radius = 0, maxRise = 1.02): number {
     const interior = Math.abs(x) <= this.options.width / 2 && Math.abs(z) <= this.options.depth / 2;
     let height = this.elevator?.surfaceAt(x, z) ?? (interior ? (feetY < -1.2 ? -3.6 : 0) : this.exteriorWalkHeightAt(x, z) ?? -3.6);
-    for (const surface of this.walkSurfaces) { const surfaceHeight = surface.height + (surface.slopeX ?? 0) * (x - surface.minX); if (surfaceHeight >= feetY - 0.27 && surfaceHeight <= feetY + 1.02 && x >= surface.minX && x <= surface.maxX && z >= surface.minZ && z <= surface.maxZ) height = Math.max(height, surfaceHeight); }
-    for (const box of this.colliders) { const surfaceHeight = box.max.y, thickness = box.max.y - box.min.y; if (thickness < 0.18 || thickness > 0.27 || surfaceHeight < feetY - 0.27 || surfaceHeight > feetY + 1.02 || x + 0.24 <= box.min.x || x - 0.24 >= box.max.x || z + 0.24 <= box.min.z || z - 0.24 >= box.max.z) continue; height = Math.max(height, surfaceHeight); }
+    for (const surface of this.walkSurfaces) { const closestX = THREE.MathUtils.clamp(x, surface.minX, surface.maxX), closestZ = THREE.MathUtils.clamp(z, surface.minZ, surface.maxZ), surfaceHeight = surface.height + (surface.slopeX ?? 0) * (closestX - surface.minX); if (surfaceHeight >= feetY - 0.27 && surfaceHeight <= feetY + maxRise && (radius > 0 ? Math.hypot(x - closestX, z - closestZ) < radius : x >= surface.minX && x <= surface.maxX && z >= surface.minZ && z <= surface.maxZ)) height = Math.max(height, surfaceHeight); }
+    for (const box of this.colliders) { const surfaceHeight = box.max.y, thickness = box.max.y - box.min.y; if (thickness < 0.18 || thickness > 0.27 || surfaceHeight < feetY - 0.27 || surfaceHeight > feetY + maxRise || (radius > 0 ? Math.hypot(x - THREE.MathUtils.clamp(x, box.min.x, box.max.x), z - THREE.MathUtils.clamp(z, box.min.z, box.max.z)) >= radius : x + 0.24 <= box.min.x || x - 0.24 >= box.max.x || z + 0.24 <= box.min.z || z - 0.24 >= box.max.z)) continue; height = Math.max(height, surfaceHeight); }
     return height;
   }
 
@@ -1221,7 +1223,7 @@ export class Office {
   update(dt: number, playerX?: number, playerZ?: number): void {
     this.coffee.update(dt);
     const time = performance.now() * 0.002;
-    this.weather.update(dt);
+    this.camera.getWorldPosition(this.weatherViewPosition); this.weather.update(dt, this.weatherViewPosition.x, this.weatherViewPosition.z);
     updateOutdoor(this.scene, dt, this.weather.season, this.weather.current, this.weather.windStrength, this.weather.lighting.calendar);
     if (this.shadowSunDirection.distanceToSquared(this.weather.lighting.sunDirection) > 0.00001) { this.shadowDirty = true; this.shadowSunDirection.copy(this.weather.lighting.sunDirection); }
     this.updateWallClock();

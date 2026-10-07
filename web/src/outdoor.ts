@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { surfaceMaterial } from "./materials";
 import { mergeStaticMeshes } from "./static_geometry";
+import { GARAGE_DRIVEWAY, registerVehicleSurface } from "./driving";
 
 const STREET_Y = -3.6;
 const colors = [0xb9ccd0, 0xd9c5b0, 0xbccdb5, 0xd2bfd4, 0xc8d4df, 0xd6c8aa];
@@ -16,6 +17,7 @@ export function buildOutdoor(scene: THREE.Scene): THREE.Box3[] {
   lawn.position.y = STREET_Y - 0.08;
   lawn.receiveShadow = true;
   scene.add(lawn);
+  registerVehicleSurface(scene, lawn);
   scene.userData.outdoorLawn = lawn;
   const wallMats = colors.map((color) => new THREE.MeshStandardMaterial({ color: new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.16), roughness: 0.86, metalness: 0.025 }));
   const windowMats = [0xb4dce7, 0xd5e7e8, 0xf0dba9, 0xc3d7ea].map((color) => new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.1, roughness: 0.38, metalness: 0.08, transparent: true, opacity: 0.8 }));
@@ -23,12 +25,13 @@ export function buildOutdoor(scene: THREE.Scene): THREE.Box3[] {
   const windowFrame = new THREE.MeshStandardMaterial({ color: 0x78898b, roughness: 0.7, metalness: 0.1 });
   const roofMetal = new THREE.MeshStandardMaterial({ color: 0x96a4a3, roughness: 0.72, metalness: 0.18 });
   const paneMaterials = new Map<string, THREE.MeshStandardMaterial>(), theaterBulbs = [new THREE.MeshBasicMaterial({ color: 0xfff2c1 }), new THREE.MeshBasicMaterial({ color: 0xffcc75 })];
-  const addBox = (w: number, h: number, d: number, material: THREE.Material, x: number, y: number, z: number, collision = false) => {
+  const addBox = (w: number, h: number, d: number, material: THREE.Material, x: number, y: number, z: number, collision = false, driveSurface = false) => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     architecture.add(mesh);
+    if (driveSurface) registerVehicleSurface(scene, mesh);
     if (collision) colliders.push(new THREE.Box3().setFromObject(mesh).expandByScalar(0.04));
     return mesh;
   };
@@ -259,16 +262,18 @@ export function buildOutdoor(scene: THREE.Scene): THREE.Box3[] {
   const curb = new THREE.MeshStandardMaterial({ color: 0xaaa9a2, roughness: 0.9 });
   const laneMark = new THREE.MeshStandardMaterial({ color: 0xe9e4d5, roughness: 0.9 });
   const curbGaps: [number, number][] = [[-74, -73.2], [-66.8, 66.8], [73.2, 74]];
-  const drivewayCurbGaps: [number, number][] = [[-74, -73.2], [-66.8, -22], [-14, 66.8], [73.2, 74]];
-  addBox(148, 0.1, 6.4, asphalt, 0, STREET_Y - 0.025, -21.5);
-  for (const z of [-17.7, -25.3]) for (const [x0, x1] of curbGaps) addBox(x1 - x0, 0.12, 1.2, curb, (x0 + x1) / 2, STREET_Y - 0.01, z);
+  const drivewayCurbGaps: [number, number][] = [[-74, -73.2], [-66.8, -22], [-14, GARAGE_DRIVEWAY.minX], [GARAGE_DRIVEWAY.maxX, 66.8], [73.2, 74]];
+  addBox(148, 0.1, 6.4, asphalt, 0, STREET_Y - 0.025, -21.5, false, true);
+  for (const z of [-17.7, -25.3]) for (const [x0, x1] of curbGaps) addBox(x1 - x0, 0.12, 1.2, curb, (x0 + x1) / 2, STREET_Y - 0.01, z, false, true);
   for (let x = -64; x <= 64; x += 6.4) addBox(3.2, 0.025, 0.12, laneMark, x, STREET_Y + 0.04, -21.5);
-  addBox(148, 0.1, 6.4, asphalt, 0, STREET_Y - 0.025, 21.5);
-  for (const z of [17.7, 25.3]) for (const [x0, x1] of z === 17.7 ? drivewayCurbGaps : curbGaps) addBox(x1 - x0, 0.12, 1.2, curb, (x0 + x1) / 2, STREET_Y - 0.01, z);
+  addBox(148, 0.1, 6.4, asphalt, 0, STREET_Y - 0.025, 21.5, false, true);
+  for (const z of [17.7, 25.3]) for (const [x0, x1] of z === 17.7 ? drivewayCurbGaps : curbGaps) addBox(x1 - x0, 0.12, 1.2, curb, (x0 + x1) / 2, STREET_Y - 0.01, z, false, true);
+  addBox(GARAGE_DRIVEWAY.maxX - GARAGE_DRIVEWAY.minX, 0.1, GARAGE_DRIVEWAY.maxZ - GARAGE_DRIVEWAY.minZ, asphalt, (GARAGE_DRIVEWAY.minX + GARAGE_DRIVEWAY.maxX) / 2, STREET_Y - 0.025, (GARAGE_DRIVEWAY.minZ + GARAGE_DRIVEWAY.maxZ) / 2, false, true);
+  for (const x of [GARAGE_DRIVEWAY.minX + 0.12, GARAGE_DRIVEWAY.maxX - 0.12]) addBox(0.07, 0.004, 5.5, laneMark, x, STREET_Y + 0.029, 13.7);
   for (let x = -64; x <= 64; x += 6.4) addBox(3.2, 0.025, 0.12, laneMark, x, STREET_Y + 0.04, 21.5);
   for (const x of [-70, 70]) {
-    addBox(6.4, 0.1, 148, asphalt, x, STREET_Y - 0.025, 0);
-    for (const curbX of [x - 3.8, x + 3.8]) for (const [z0, z1] of [[-74, -24.7], [-18.3, 18.3], [24.7, 74]] as [number, number][]) addBox(1.2, 0.12, z1 - z0, curb, curbX, STREET_Y - 0.01, (z0 + z1) / 2);
+    addBox(6.4, 0.1, 148, asphalt, x, STREET_Y - 0.025, 0, false, true);
+    for (const curbX of [x - 3.8, x + 3.8]) for (const [z0, z1] of [[-74, -24.7], [-18.3, 18.3], [24.7, 74]] as [number, number][]) addBox(1.2, 0.12, z1 - z0, curb, curbX, STREET_Y - 0.01, (z0 + z1) / 2, false, true);
     for (let z = -64; z <= 64; z += 6.4) addBox(0.12, 0.025, 3.2, laneMark, x, STREET_Y + 0.04, z);
   }
   for (const bounds of [

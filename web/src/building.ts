@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { ELEVATOR_LAYOUT } from "./elevator";
 import { buildStreetTrees } from "./outdoor";
-import { animateVehicle, updateVehicleBounds, vehicleOverlaps, type DriveCar, type VehicleKind } from "./driving";
+import { animateVehicle, placeVehicleOnSurface, registerVehicleSurface, vehicleTerrainHeight, vehicleOverlaps, type DriveCar, type VehicleKind } from "./driving";
 import { mergeStaticMeshes } from "./static_geometry";
 
 const STREET_Y = -3.6;
@@ -21,6 +21,7 @@ const ROAD_Z1 = 21.5 + 3.2;
 
 export interface BuildingExterior {
   colliders: THREE.Box3[];
+  roofs: THREE.Box3[];
   walkHeightAt: (x: number, z: number) => number | undefined;
   exitDoorPosition: { x: number; z: number };
   setExitDoor: (open: boolean) => void;
@@ -32,6 +33,7 @@ function material(color: number, roughness = 0.78, metalness = 0): THREE.MeshSta
 
 export function buildExterior(scene: THREE.Scene, width: number, depth: number): BuildingExterior {
   const colliders: THREE.Box3[] = [];
+  const roofs: THREE.Box3[] = [];
   const floorX = width / 2;
   const floorZ = depth / 2;
   const westX = -floorX;
@@ -55,14 +57,15 @@ export function buildExterior(scene: THREE.Scene, width: number, depth: number):
     mesh.position.set(x, y, z);
     mesh.receiveShadow = true;
     architecture.add(mesh);
+    registerVehicleSurface(scene, mesh);
   };
   ground(width + 4, depth + 4, 0, STREET_Y - 0.015, 0, 0xe1ddcf);
   const holeMinX = ELEVATOR_LAYOUT.x - ELEVATOR_LAYOUT.width / 2, holeMaxX = ELEVATOR_LAYOUT.x + ELEVATOR_LAYOUT.width / 2, holeMinZ = ELEVATOR_LAYOUT.z - ELEVATOR_LAYOUT.depth / 2, holeMaxZ = ELEVATOR_LAYOUT.z + ELEVATOR_LAYOUT.depth / 2;
   const slabMinX = -floorX - 1.5, slabMaxX = floorX + 1.5, slabMinZ = -floorZ - 1.5, slabMaxZ = floorZ + 1.5;
-  addBox(holeMinX - slabMinX, 0.24, depth + 3, 0xc8c7bc, (slabMinX + holeMinX) / 2, -0.17, 0);
-  addBox(slabMaxX - holeMaxX, 0.24, depth + 3, 0xc8c7bc, (holeMaxX + slabMaxX) / 2, -0.17, 0);
-  addBox(holeMaxX - holeMinX, 0.24, holeMinZ - slabMinZ, 0xc8c7bc, ELEVATOR_LAYOUT.x, -0.17, (slabMinZ + holeMinZ) / 2);
-  addBox(holeMaxX - holeMinX, 0.24, slabMaxZ - holeMaxZ, 0xc8c7bc, ELEVATOR_LAYOUT.x, -0.17, (holeMaxZ + slabMaxZ) / 2);
+  roofs.push(new THREE.Box3().setFromObject(addBox(holeMinX - slabMinX, 0.24, depth + 3, 0xc8c7bc, (slabMinX + holeMinX) / 2, -0.17, 0)));
+  roofs.push(new THREE.Box3().setFromObject(addBox(slabMaxX - holeMaxX, 0.24, depth + 3, 0xc8c7bc, (holeMaxX + slabMaxX) / 2, -0.17, 0)));
+  roofs.push(new THREE.Box3().setFromObject(addBox(holeMaxX - holeMinX, 0.24, holeMinZ - slabMinZ, 0xc8c7bc, ELEVATOR_LAYOUT.x, -0.17, (slabMinZ + holeMinZ) / 2)));
+  roofs.push(new THREE.Box3().setFromObject(addBox(holeMaxX - holeMinX, 0.24, slabMaxZ - holeMaxZ, 0xc8c7bc, ELEVATOR_LAYOUT.x, -0.17, (holeMaxZ + slabMaxZ) / 2)));
   for (const x of [-floorX + 1, 0, floorX - 1]) for (const z of [-floorZ + 1, 0, floorZ - 1]) addBox(0.34, 3.22, 0.34, 0xb8bec5, x, -1.95, z, true);
   for (const z of [-floorZ - 1.2, floorZ + 1.2]) addBox(width + 2.4, 0.28, 0.25, 0x8e949c, 0, -0.35, z);
   addBox(0.25, 3.25, depth + 2.4, 0x8e949c, floorX + 1.1, -1.95, 0);
@@ -148,7 +151,7 @@ export function buildExterior(scene: THREE.Scene, width: number, depth: number):
       const pivot = new THREE.Group(), spin = new THREE.Group(), parts = root.children.slice(start); pivot.position.set(side * 0.87, 0.34, end * 1.08); pivot.add(spin); for (const part of parts) { part.position.sub(pivot.position); spin.add(part); } root.add(pivot); mergeStaticMeshes(spin); wheels.push({ pivot, spin, front: end > 0 });
     }
     scene.add(root);
-    const collider = new THREE.Box3(), model: DriveCar = { id: colliding ? driveCars.length : -1, name: kind === "coupe" ? "Sport coupe" : kind === "wagon" ? "Estate wagon" : kind === "pickup" ? "Pickup truck" : "City sedan", kind, root, collider, wheels, wheelRadius: 0.34, wheelbase: 2.16, maxSpeed: kind === "coupe" ? 21 : kind === "pickup" ? 13 : kind === "wagon" ? 15 : 17 }; root.userData.vehicle = model; updateVehicleBounds(model);
+    const collider = new THREE.Box3(), model: DriveCar = { id: colliding ? driveCars.length : -1, name: kind === "coupe" ? "Sport coupe" : kind === "wagon" ? "Estate wagon" : kind === "pickup" ? "Pickup truck" : "City sedan", kind, root, collider, wheels, wheelRadius: 0.34, wheelbase: 2.16, maxSpeed: kind === "coupe" ? 21 : kind === "pickup" ? 13 : kind === "wagon" ? 15 : 17 }; root.userData.vehicle = model; placeVehicleOnSurface(scene, model);
     if (colliding) { colliders.push(collider); driveCars.push(model); } else trafficModels.push(model);
     return root;
   };
@@ -157,7 +160,7 @@ export function buildExterior(scene: THREE.Scene, width: number, depth: number):
   car(4, -3, 0x4286b5, true, "sedan");
   car(11, 4, 0xe2ad43, true, "pickup");
 
-  const trafficCars: { root: THREE.Group; direction: number; speed: number }[] = [];
+  const trafficCars: { root: THREE.Group; direction: number; speed: number; cruise: number }[] = [];
   const pedestrians: { root: THREE.Group; leftLeg: THREE.Group; rightLeg: THREE.Group; leftArm: THREE.Group; rightArm: THREE.Group; direction: number; endZ: number; speed: number; phase: number }[] = [];
   let trafficMode: "cars" | "clearing" | "pedestrians" = "cars";
   let trafficTimer = 20 + Math.random() * 14;
@@ -207,20 +210,32 @@ export function buildExterior(scene: THREE.Scene, width: number, depth: number):
       trafficTimer -= dt;
       spawnTimer -= dt;
       if (spawnTimer <= 0 && trafficCars.length < 4) {
-        const direction = Math.random() < 0.5 ? 1 : -1;
-        const roadZ = Math.random() < 0.65 ? (ROAD_Z0 + ROAD_Z1) / 2 : -21.5;
-        const root = car(direction > 0 ? -76 : 76, roadZ + (direction > 0 ? -1.05 : 1.05), [0x315c70, 0x914c3f, 0xb6944e, 0xd1d4d1, 0x48505a][Math.floor(Math.random() * 5)], false, (["sedan", "coupe", "wagon", "pickup"] as const)[Math.floor(Math.random() * 4)]);
-        root.rotation.y = direction > 0 ? Math.PI / 2 : -Math.PI / 2;
-        updateVehicleBounds(root.userData.vehicle as DriveCar);
-        trafficCars.push({ root, direction, speed: 5.2 + Math.random() * 2.2 });
-        spawnTimer = 4.5 + Math.random() * 4.5;
+        const first = Math.floor(Math.random() * 4);
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const lane = (first + attempt) % 4, direction = lane % 2 ? -1 : 1, roadZ = lane < 2 ? (ROAD_Z0 + ROAD_Z1) / 2 : -21.5, x = direction > 0 ? -76 : 76, z = roadZ - direction * 1.6, pose = { x, z, yaw: direction > 0 ? Math.PI / 2 : -Math.PI / 2 };
+          if (driveCars.some((other) => vehicleOverlaps(pose, other.collider)) || trafficModels.some((other) => vehicleOverlaps(pose, other.collider))) continue;
+          const root = car(x, z, [0x315c70, 0x914c3f, 0xb6944e, 0xd1d4d1, 0x48505a][Math.floor(Math.random() * 5)], false, (["sedan", "coupe", "wagon", "pickup"] as const)[Math.floor(Math.random() * 4)]);
+          root.rotation.y = pose.yaw; placeVehicleOnSurface(scene, root.userData.vehicle as DriveCar);
+          trafficCars.push({ root, direction, speed: 0, cruise: 5.2 + Math.random() * 2.2 }); spawnTimer = 4.5 + Math.random() * 4.5; break;
+        }
+        if (spawnTimer <= 0) spawnTimer = 0.3;
       }
       if (trafficTimer <= 0) trafficMode = "clearing";
     }
     for (let i = trafficCars.length - 1; i >= 0; i--) {
       const vehicle = trafficCars[i];
-      const model = vehicle.root.userData.vehicle as DriveCar, nextX = vehicle.root.position.x + vehicle.direction * vehicle.speed * dt, pose = { x: nextX, z: vehicle.root.position.z, yaw: vehicle.root.rotation.y }, clear = [...driveCars, ...trafficModels].every((other) => other === model || Math.abs(other.root.position.x - nextX) > 7 || !vehicleOverlaps(pose, other.collider));
-      if (clear) { vehicle.root.position.x = nextX; animateVehicle(model, vehicle.speed * dt); updateVehicleBounds(model); }
+      const model = vehicle.root.userData.vehicle as DriveCar, count = Math.max(1, Math.ceil(Math.max(vehicle.speed, 3) * dt / 0.15)), step = dt / count;
+      for (let segment = 0; segment < count; segment++) {
+        let target = vehicle.cruise;
+        const follow = (other: DriveCar) => { if (other === model || other.collider.max.z <= model.collider.min.z || other.collider.min.z >= model.collider.max.z || (other.root.position.x - vehicle.root.position.x) * vehicle.direction <= 0) return; const gap = vehicle.direction > 0 ? other.collider.min.x - vehicle.root.position.x - 1.9 : vehicle.root.position.x - 1.9 - other.collider.max.x; target = Math.min(target, Math.max(0, (gap - 0.7) * 1.7)); };
+        for (const other of driveCars) follow(other); for (const other of trafficModels) follow(other);
+        if (target < 0.05) target = 0;
+        vehicle.speed += THREE.MathUtils.clamp(target - vehicle.speed, -8 * step, 3 * step);
+        const distance = vehicle.speed * step, nextX = vehicle.root.position.x + vehicle.direction * distance, pose = { x: nextX, z: vehicle.root.position.z, yaw: vehicle.root.rotation.y };
+        const overlaps = (other: DriveCar) => other !== model && (other.root.position.x - vehicle.root.position.x) * vehicle.direction > 0 && vehicleOverlaps(pose, other.collider);
+        let clear = true; for (const other of driveCars) if (overlaps(other)) { clear = false; break; } if (clear) for (const other of trafficModels) if (overlaps(other)) { clear = false; break; }
+        if (!clear) { vehicle.speed = 0; break; } vehicle.root.position.x = nextX; animateVehicle(model, distance); placeVehicleOnSurface(scene, model);
+      }
       if (vehicle.root.position.x < -78 || vehicle.root.position.x > 78) { disposeActor(vehicle.root); trafficCars.splice(i, 1); }
     }
     for (let i = pedestrians.length - 1; i >= 0; i--) {
@@ -302,8 +317,7 @@ export function buildExterior(scene: THREE.Scene, width: number, depth: number):
     if (x >= stairX - 1.15 && x <= stairX + 1.15 && z >= LANDING_Z1 && z <= stairBottomZ) return -Math.min(STAIR_COUNT - 1, Math.floor((z - LANDING_Z1) / STAIR_RUN)) * STAIR_RISE;
     if (x >= stairX - 4 && x <= stairX + 4 && z >= stairBottomZ && z <= ROAD_Z0) return STREET_Y + 0.025;
     if (x >= -74 && x <= 74 && z >= ROAD_Z0 && z <= ROAD_Z1) return STREET_Y + 0.025;
-    if (x >= -floorX - 2 && x <= floorX + 2 && z >= -floorZ - 2 && z <= floorZ + 2) return STREET_Y;
-    return undefined;
+    return vehicleTerrainHeight(scene, x, z);
   };
-  return { colliders, walkHeightAt, exitDoorPosition: { x: westX - 0.4, z: EXIT_Z }, setExitDoor, updateExitDoor, updateTraffic };
+  return { colliders, roofs, walkHeightAt, exitDoorPosition: { x: westX - 0.4, z: EXIT_Z }, setExitDoor, updateExitDoor, updateTraffic };
 }

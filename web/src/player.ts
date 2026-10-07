@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Office } from "./office";
 import { surfaceMaterial } from "./materials";
-import type { VehiclePose } from "./driving";
+import { vehicleSurfaceHeight, type VehiclePose } from "./driving";
 
 const RADIUS = 0.33;
 const WALK = 3.1;
@@ -461,7 +461,7 @@ export class Player {
       if (!this.vehiclePose) { this.vehicleCameraReady = false; if (document.pointerLockElement === this.office.renderer.domElement) document.exitPointerLock(); }
       if (this.vehiclePose) Object.assign(this.vehiclePose, pose); else this.vehiclePose = { ...pose };
       this.transportLocked = true; this.seated = false; this.keys.clear(); this.jumpHeight = this.jumpVelocity = 0; this.figure.root.visible = false; this.firstPersonHands.visible = false;
-      this.x = pose.x; this.z = pose.z; this.groundY = this.seatGroundY = -3.6; this.facing = pose.yaw;
+      this.x = pose.x; this.z = pose.z; this.groundY = this.seatGroundY = vehicleSurfaceHeight(this.office.scene, pose); this.facing = pose.yaw;
     } else { this.vehiclePose = null; this.vehicleCameraReady = false; this.transportLocked = false; this.figure.root.visible = !this.firstPerson; this.firstPersonHands.visible = this.firstPerson && !this.xrMode; this.keys.clear(); }
   }
 
@@ -553,7 +553,7 @@ export class Player {
   update(dt: number, time: number): void {
     if (this.vehiclePose) {
       const pose = this.vehiclePose, sin = Math.sin(pose.yaw), cos = Math.cos(pose.yaw);
-      this.vehicleCameraPosition.set(pose.x - sin * 5.5, -1.15, pose.z - cos * 5.5); this.vehicleCameraTarget.set(pose.x + sin * 2, -2.65, pose.z + cos * 2);
+      this.vehicleCameraPosition.set(pose.x - sin * 5.5, this.groundY + 2.45, pose.z - cos * 5.5); this.vehicleCameraTarget.set(pose.x + sin * 2, this.groundY + 0.95, pose.z + cos * 2);
       if (this.vehicleCameraReady) this.office.camera.position.lerp(this.vehicleCameraPosition, 1 - Math.exp(-dt * 10)); else { this.office.camera.position.copy(this.vehicleCameraPosition); this.vehicleCameraReady = true; }
       this.office.camera.lookAt(this.vehicleCameraTarget); this.figure.root.position.set(this.x, this.groundY, this.z); return;
     }
@@ -587,18 +587,19 @@ export class Player {
         this.facing = this.xrMode ? this.xrMoveYaw + Math.PI : Math.atan2(dx, dz);
         this.phase += dt;
       }
-      const airborne = this.jumpVelocity !== 0 || this.jumpHeight !== 0, surface = this.office.walkSurfaceAt(this.x, this.z, airborne ? this.worldY : this.groundY);
+      const airborne = this.jumpVelocity !== 0 || this.jumpHeight !== 0, surface = this.office.walkSurfaceAt(this.x, this.z, airborne ? this.worldY : this.groundY, airborne ? 0 : RADIUS, airborne ? 1.02 : 0.27);
       if (!airborne && Math.abs(surface - this.groundY) <= 0.27) this.groundY = surface;
       if (airborne) {
         const previousY = this.worldY;
         const nextHeight = this.jumpHeight + this.jumpVelocity * dt;
         const nextY = this.groundY + nextHeight;
-        if (this.jumpVelocity < 0 && surface >= this.groundY - 0.001 && surface <= previousY && surface >= nextY) {
-          this.groundY = surface;
+        const landingSurface = this.office.walkSurfaceAt(this.x, this.z, Math.min(previousY, nextY), 0, Math.max(1.02, previousY - nextY));
+        if (this.jumpVelocity < 0 && landingSurface >= this.groundY - 0.001 && landingSurface <= previousY && landingSurface >= nextY) {
+          this.groundY = landingSurface;
           this.jumpHeight = 0;
           this.jumpVelocity = 0;
         } else if (nextHeight <= 0) {
-          this.groundY = surface;
+          this.groundY = landingSurface <= previousY ? landingSurface : surface;
           this.jumpHeight = 0;
           this.jumpVelocity = 0;
         } else {
@@ -665,11 +666,11 @@ export class Player {
     const stepX = dx / subdivisions, stepZ = dz / subdivisions;
     for (let i = 0; i < subdivisions; i++) {
       const followsSurface = this.jumpHeight === 0 && this.jumpVelocity === 0;
-      const nextX = this.x + stepX, xSurface = this.office.walkSurfaceAt(nextX, this.z, this.groundY);
+      const nextX = this.x + stepX, xSurface = this.office.walkSurfaceAt(nextX, this.z, this.groundY, followsSurface ? RADIUS : 0, followsSurface ? 0.27 : 1.02);
       const xGround = followsSurface && Math.abs(xSurface - this.groundY) <= 0.27 ? xSurface : this.groundY;
       const xStepGround = followsSurface && xGround >= this.groundY - 0.001 ? Math.max(xGround, this.stepUpSurfaceAt(nextX, this.z, this.groundY)) : xGround;
       if (this.office.isWithinWorldBounds(nextX, this.z) && !this.blocked(nextX, this.z, followsSurface ? xStepGround : feetY)) { this.x = nextX; if (followsSurface) this.groundY = xStepGround; }
-      const nextZ = this.z + stepZ, zSurface = this.office.walkSurfaceAt(this.x, nextZ, this.groundY);
+      const nextZ = this.z + stepZ, zSurface = this.office.walkSurfaceAt(this.x, nextZ, this.groundY, followsSurface ? RADIUS : 0, followsSurface ? 0.27 : 1.02);
       const zGround = followsSurface && Math.abs(zSurface - this.groundY) <= 0.27 ? zSurface : this.groundY;
       const zStepGround = followsSurface && zGround >= this.groundY - 0.001 ? Math.max(zGround, this.stepUpSurfaceAt(this.x, nextZ, this.groundY)) : zGround;
       if (this.office.isWithinWorldBounds(this.x, nextZ) && !this.blocked(this.x, nextZ, followsSurface ? zStepGround : feetY)) { this.z = nextZ; if (followsSurface) this.groundY = zStepGround; }

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Api } from "./api";
 import type { Office } from "./office";
-import { DrivingController, animateVehicle, updateVehicleBounds, type DrivingHooks, type VehiclePose } from "./driving";
+import { DrivingController, animateVehicle, placeVehicleOnSurface, type DrivingHooks, type VehiclePose } from "./driving";
 export interface VehicleState extends VehiclePose { id: number; driver: string; revision: number }
 export class VehicleCoordinator {
   readonly driving: DrivingController;
@@ -33,7 +33,7 @@ export class VehicleCoordinator {
     if (!car) throw new Error("Vehicle is unavailable");
     this.pending = true;
     const generation = this.generation;
-    try { const state = await this.api.request<VehicleState>("vehicle_enter", { id, arrival }); if (generation !== this.generation || !this.connected || state.driver !== this.connectionId()) throw new Error("Vehicle claim connection changed"); this.receive([state]); car.root.position.set(state.x, -3.6, state.z); car.root.rotation.y = state.yaw; updateVehicleBounds(car); this.sequence = 0; this.nextMove = 0; this.lastMove = { ...state }; if (!this.driving.enter(id)) { await this.api.request("vehicle_exit", { id }); throw new Error("Unable to enter vehicle"); } }
+    try { const state = await this.api.request<VehicleState>("vehicle_enter", { id, arrival }); if (generation !== this.generation || !this.connected || state.driver !== this.connectionId()) throw new Error("Vehicle claim connection changed"); this.receive([state]); car.root.position.set(state.x, -3.6, state.z); car.root.rotation.y = state.yaw; placeVehicleOnSurface(this.office.scene, car); this.sequence = 0; this.nextMove = 0; this.lastMove = { ...state }; if (!this.driving.enter(id)) { await this.api.request("vehicle_exit", { id }); throw new Error("Unable to enter vehicle"); } }
     finally { if (generation === this.generation) this.pending = false; }
   }
   update(dt: number, enabled: boolean): void {
@@ -43,7 +43,7 @@ export class VehicleCoordinator {
       if (!state || car === own || car.id === this.exiting) continue;
       const beforeX = car.root.position.x, beforeZ = car.root.position.z, distance = Math.hypot(state.x - beforeX, state.z - beforeZ), blend = !state.driver || distance > 8 ? 1 : 1 - Math.exp(-dt * 14);
       car.root.position.x += (state.x - beforeX) * blend; car.root.position.z += (state.z - beforeZ) * blend; car.root.rotation.y += (THREE.MathUtils.euclideanModulo(state.yaw - car.root.rotation.y + Math.PI, Math.PI * 2) - Math.PI) * blend;
-      animateVehicle(car, Math.hypot(car.root.position.x - beforeX, car.root.position.z - beforeZ) * (state.speed < 0 ? -1 : 1), state.steer); updateVehicleBounds(car);
+      animateVehicle(car, Math.hypot(car.root.position.x - beforeX, car.root.position.z - beforeZ) * (state.speed < 0 ? -1 : 1), state.steer); placeVehicleOnSurface(this.office.scene, car);
     }
     this.driving.update(dt, enabled);
     const car = this.driving.current, pose = this.driving.pose, now = performance.now();
