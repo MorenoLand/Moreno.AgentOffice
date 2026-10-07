@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"agentoffice/office"
+	"github.com/MorenoLand/Moreno.AgentOffice/office"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module agentoffice
+module github.com/MorenoLand/Moreno.AgentOffice
 
 go 1.26
 
